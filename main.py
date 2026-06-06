@@ -1,16 +1,54 @@
 import bluetooth
 import struct
-from machine import Pin, I2C
-from bno08x import *
 import time
 
-# Setup
+from machine import Pin, I2C
+
+# Using https://github.com/dobodu/BOSCH-BNO085-I2C-micropython-library
+from bno08x import *
+
+# Pin-Layout
+# RPI PICO 2 W          BNO085 BREAKOUT
+# +-----------+          +-------------+
+# |           |          |             |
+# |  3V3 (36) |--------->|  VIN        |  <-- Power (3.3V)
+# |           |          |             |
+# |  GND (38) |--------->|  GND        |  <-- Ground
+# |           |          |             |
+# |  GP4 (6)  |--------->|  SDA        |  <-- I2C Data
+# |           |          |             |
+# |  GP5 (7)  |--------->|  SCL        |  <-- I2C Clock
+# |           |          |             |
+# +-----------+          +-------------+
+
+# Maximum frequeny (Hz) of BLE packages, might be lower due to processing time
+BLE_SEND_FREQUENCY = 20
+
+
+
+
+
+# SDA & SCL using GPIO-4 and GPIO-5 (see diagram above)
 i2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=100000)
 bno = BNO08X(i2c, address=0x4A)
-bno.enable_feature(BNO_REPORT_ACCELEROMETER)
-bno.enable_feature(BNO_REPORT_GAME_ROTATION_VECTOR)
 
-# BLE
+# Only enable the sensor features we need
+# Explanations at https://learn.adafruit.com/adafruit-9-dof-orientation-imu-fusion-breakout-bno085/report-types
+# Where applicable, we set report frequency to the specified BLE frequency or the sensor's default if it is higher
+# Defaults at: https://github.com/dobodu/BOSCH-BNO085-I2C-micropython-library/blob/b8253eb752cda5b113998ee66dd650217d3a7ab5/lib/bno08x.py#L165
+# TODO(?): One could also set sensor frequency higher than BLE_SEND_FREQUENCY and average over multiple readings
+bno.enable_feature(BNO_REPORT_LINEAR_ACCELERATION, freq=max(BLE_SEND_FREQUENCY, 20)) # Gravity-removed acceleration
+bno.enable_feature(BNO_REPORT_ROTATION_VECTOR, freq=max(BLE_SEND_FREQUENCY, 10))     # Rotation using Accel + Gyro + Magnetometer
+bno.set_quaternion_euler_vector(BNO_REPORT_ROTATION_VECTOR) # bno.euler now uses BNO_REPORT_ROTATION_VECTOR, default is BNO_REPORT_GAME_ROTATION_VECTOR
+
+# ---
+#bno.enable_feature(BNO_REPORT_GAME_ROTATION_VECTOR)  # Rotation using Accel + Gyro (no magnetic interference possible)
+#bno.enable_feature(BNO_REPORT_STABILITY_CLASSIFIER)  # Detect when stationary
+# ---
+
+time.sleep_ms(200)
+
+# BLE (Bluetooth Low Energy)
 ble = bluetooth.BLE()
 ble.active(True)
 
@@ -41,34 +79,38 @@ ble.irq(ble_irq)
 ble.gap_advertise(100, b'\x02\x01\x06\x09\x09Freeskate')
 print("Advertising...")
 
-last_send = time.ticks_ms()
+time_between_sends_ms = 1000 // BLE_SEND_FREQUENCY
 
 while True:
-    current_time = time.ticks_ms()
-    if time.ticks_diff(current_time, last_send) < 50:
-        continue
-    last_send = current_time
+    timestamp_ms = time.ticks_ms()
     
     try:
         roll, pitch, yaw = bno.euler
-        accel_x, accel_y, accel_z = bno.acc
+        accel_x, accel_y, accel_z = bno.acc_linear 
         
         if connected and conn_handle:
             # Packet 1: Timestamp (T:)
-            pkt1 = f"T:{current_time}"
+            pkt1 = f"T:{timestamp_ms}"
             ble.gatts_notify(conn_handle, tx_handle, pkt1.encode())
-            time.sleep_ms(5)
+            time.sleep_ms(3)
             
             # Packet 2: Angles (A:)
             pkt2 = f"A:{pitch:.1f},{yaw:.1f},{roll:.1f}"
             ble.gatts_notify(conn_handle, tx_handle, pkt2.encode())
-            time.sleep_ms(5)
+            time.sleep_ms(3)
             
             # Packet 3: Acceleration (G:)
             pkt3 = f"G:{accel_x:.2f},{accel_y:.2f},{accel_z:.2f}"
             ble.gatts_notify(conn_handle, tx_handle, pkt3.encode())
         
-        print(f"{current_time}: P={pitch:.1f} Y={yaw:.1f} R={roll:.1f} | A={accel_x:.2f},{accel_y:.2f},{accel_z:.2f}")
+        print(f"{timestamp_ms}: P={pitch:.1f} Y={yaw:.1f} R={roll:.1f} | A={accel_x:.2f},{accel_y:.2f},{accel_z:.2f} | Cal:{bno.calibration_status}")
         
     except Exception as e:
         print(f"Error: {e}")
+        raise e
+    
+    elapsed_time_ms = time.ticks_diff(time.ticks_ms(), timestamp_ms)
+    sleep_time_ms = time_between_sends_ms - elapsed_time_ms
+    if sleep_time_ms > 0:
+        #print(f"Target time: {time_between_sends_ms}ms,now sleeping: {sleep_time_ms}ms")
+        time.sleep_ms(sleep_time_ms)

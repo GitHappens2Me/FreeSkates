@@ -1,5 +1,6 @@
 # BNO08X Micropython I2C Library by Dobodu
-#
+# https://github.com/dobodu/BOSCH-BNO085-I2C-micropython-library
+# 
 # Adapted from original Adafruit CircuitPyhton library
 # SPDX-FileCopyrightText: Copyright (c) 2020 Bryan Siepert for Adafruit Industries
 # SPDX-License-Identifier: MIT

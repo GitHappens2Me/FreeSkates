@@ -270,11 +270,8 @@ class SkateAnalyzer:
             ])
             acc_world[i] = OrientationUtils.rotate_acceleration(acc_body, R)
         
-        # Remove gravity
-        gravity_estimate = np.median(acc_world[:, 2])
-        acc_world[:, 2] -= gravity_estimate
         
-        # Filter after gravity removal
+        # Filter 
         for i in range(3):
             acc_world[:, i] = self.lowpass_filter(acc_world[:, i], self.config.acc_cutoff_hz)
         
@@ -361,10 +358,10 @@ class Visualizer:
         # Plot 1: Acceleration magnitude with rest periods
         ax1 = axes[0]
         ax1.plot(t, acc_mag, 'b-', alpha=0.7, label='|Acc|')
-        ax1.axhline(y=self.config.gravity, color='k', linestyle='--', alpha=0.5, label='Expected g')
-        ax1.axhline(y=self.config.gravity + self.config.rest_acceleration_threshold, 
+        ax1.axhline(y=self.config.rest_acceleration_threshold, 
                    color='r', linestyle='--', alpha=0.5, label='Rest threshold')
-        ax1.fill_between(t, 0, 50, where=rest_mask, alpha=0.2, color='green', label='Detected rest')
+        y_min, y_max = ax1.get_ylim()
+        ax1.fill_between(t, y_min, y_max, where=rest_mask, alpha=0.2, color='green', label='Detected rest')
         ax1.set_ylabel('Acceleration (m/s²)')
         ax1.set_title('Rest Detection: Acceleration')
         ax1.legend(loc='upper right')
@@ -382,7 +379,8 @@ class Visualizer:
         
         ax2.plot(t, v_raw_mag, 'r--', alpha=0.5, label='Raw (uncorrected)')
         ax2.plot(t, v_corr_mag, 'g-', linewidth=2, label='Corrected')
-        ax2.fill_between(t, 0, v_raw_mag.max(), where=rest_mask, alpha=0.2, color='green')
+        y_min, y_max = ax2.get_ylim()
+        ax2.fill_between(t, y_min, y_max, where=rest_mask, alpha=0.2, color='green')
         ax2.set_ylabel('Velocity (m/s)')
         ax2.set_title('Velocity: Raw vs Corrected')
         ax2.legend()
@@ -393,7 +391,8 @@ class Visualizer:
         ax3.plot(t, self.analyzer.velocities[:, 0], 'r-', label='Vx', alpha=0.7)
         ax3.plot(t, self.analyzer.velocities[:, 1], 'g-', label='Vy', alpha=0.7)
         ax3.plot(t, self.analyzer.velocities[:, 2], 'b-', label='Vz', alpha=0.7)
-        ax3.fill_between(t, -10, 10, where=rest_mask, alpha=0.2, color='green')
+        y_min, y_max = ax3.get_ylim()
+        ax3.fill_between(t, y_min, y_max, where=rest_mask, alpha=0.2, color='green')
         ax3.set_xlabel('Time (s)')
         ax3.set_ylabel('Velocity (m/s)')
         ax3.set_title('Corrected Velocity Components')
@@ -596,8 +595,8 @@ def main():
             'vel_mag': np.sqrt(np.sum(analyzer.velocities**2, axis=1)),
             'is_rest': analyzer.drift_corrector.get_rest_mask(),
         })
-        output_df.to_csv("freeskate_processed.csv", index=False)
-        print("\nSaved to freeskate_processed.csv")
+        output_df.to_csv("skate_data_processed.csv", index=False)
+        print("\nSaved to skate_data_processed.csv")
         
     except Exception as e:
         print(f"Error: {e}")
